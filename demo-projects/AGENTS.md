@@ -10,25 +10,30 @@ is once the binary leaves their hands.
 - **Developer side** — the project roots (`c-hash/`, `rust-hash/`). Source in
   `src/`, build/run/disassemble logic in `justfile`, docs in `README.md`. This
   side is *not* blind; it owns the answer key (the real source).
-- **Analyst side** — each project's `blind/` folder. It contains only compiled
-  binaries (`bin/`) and disassembly (`asm/`) plus its own `blind/AGENTS.md`
-  with the exercise. **No source lives there.**
+- **Analyst side** — each project's `blind/` folder. `just stage` fills it with
+  one opaque `case-NN/` folder per binary, each holding just the binary renamed
+  `demo`, its disassembly `demo.asm`, and a copy of the single-binary
+  `blind/AGENTS.md`. **No source lives there**, and nothing names the variant —
+  that mapping is recorded only in the operator-only `blind/_manifest.txt`.
 
-To run the experiment honestly, populate `blind/` and then point the analysis
-agent at **that folder only**:
+To run the experiment honestly, stage and then point the analysis agent at **one
+case folder only**:
 
 ```sh
-cd c-hash && just stage     # builds the matrix, strips, disassembles -> blind/
-# then, in a fresh session, give the agent ONLY:  c-hash/blind
+cd c-hash && just stage          # builds the matrix, strips, disassembles -> blind/case-NN/
+cat blind/_manifest.txt          # operator-only: which case is which variant
+# then, in a fresh session, give the agent ONLY:  c-hash/blind/case-07
 ```
 
-Because the agent's root is `blind/`, it cannot reach `../src`. When you want it
-to grade itself, manually copy or symlink the original source into the blind
-folder (e.g. `cp src/fnv1a.c c-hash/blind/solution/`) *after* it has committed
-its reconstruction.
+Because the agent's root is a single `case-NN/` folder, it cannot reach `../src`,
+cannot see sibling cases, and cannot tell from filenames which compiler, opt
+level, architecture, or symbol state it was handed. When you want it to grade
+itself, run `just grade blind/case-NN/<recon>` *after* it has committed its
+reconstruction — that drops the reference source beside the reconstruction and
+diffs them.
 
 > If you instead point an agent at a whole project root, it can trivially read
-> the source and the experiment is meaningless. The blind/ split exists to
+> the source and the experiment is meaningless. The per-case split exists to
 > prevent that by accident.
 
 ## The dimensions under study
@@ -65,15 +70,17 @@ The detailed, spoiler-free, step-by-step exercise lives in each
    piece of "secret" logic and nothing else of interest.
 2. **`just stage`** — build the whole matrix (compilers × opt levels ×
    architectures), strip the shipping variants, disassemble everything, and
-   publish binaries + disassembly into `blind/{bin,asm}/`. The source is *not*
-   copied.
-3. **Analyse blind** — in a fresh session, point an agent at `<project>/blind/`
-   only. It follows `blind/AGENTS.md`: triage → detect language → locate the
-   logic → read it instruction by instruction → reconstruct compilable source →
-   verify against the binary's own output. It never sees `src/`.
-4. **`just grade <recon>`** — reveal the original into `blind/solution/` and
-   score the agent's reconstruction: behavioural comparison (compile both, run
-   on several inputs) plus a textual diff. Run this only after the agent has
+   publish one opaque `blind/case-NN/` folder per binary (each: `demo`,
+   `demo.asm`, an `AGENTS.md` copy). The source is *not* copied; the variant map
+   goes only to `blind/_manifest.txt`.
+3. **Analyse blind** — in a fresh session, point an agent at one
+   `<project>/blind/case-NN/` folder only. It follows that folder's `AGENTS.md`:
+   triage → detect language → locate the logic → read it instruction by
+   instruction → reconstruct compilable source → verify against the binary's own
+   output. It never sees `src/` or any sibling case.
+4. **`just grade blind/case-NN/<recon>`** — drop the reference source beside the
+   reconstruction and score it: behavioural comparison (compile both, run on
+   several inputs) plus a textual diff. Run this only after the agent has
    committed its work.
 5. **Read the result** as the baseline: what survived compilation (algorithm,
    distinctive constants) versus what was lost (names, comments, idioms), and
@@ -109,10 +116,11 @@ apply unchanged.
   blind/AGENTS.md            # spoiler-free analyst exercise (no algorithm name!)
 ```
 
-Everything else under `blind/` (`bin/`, `asm/`, `solution/`, dropped
-reconstructions) is generated and already git-ignored by the repo-wide
-`demo-projects/*/blind/*` rule; `build/` is ignored too. No `.gitignore` changes
-are needed for a new project.
+Everything else under `blind/` (the staged `case-NN/` folders, the manifest,
+dropped reconstructions and references) is generated and already git-ignored by
+the repo-wide `demo-projects/*/blind/*` rule, which re-includes only the master
+`blind/AGENTS.md`; `build/` is ignored too. No `.gitignore` changes are needed
+for a new project.
 
 ### The justfile contract
 
@@ -127,9 +135,9 @@ unchanged. Match the existing two projects:
 | `run` / `run-arm` | run native / run under `qemu-aarch64 -L /usr/aarch64-linux-gnu` |
 | `check` | build all native variants and confirm the known-answer holds |
 | `disasm` / `disasm-arm` / `inspect` | dump disassembly; triage file/symbols/strings |
-| `stage` | rebuild + strip + disassemble, copy into `blind/{bin,asm}/`, **never** copy `src/` |
-| `grade <recon>` | copy `src/` into `blind/solution/`, compile+run both, diff |
-| `clean` | remove `build/` and `blind/{bin,asm}` — **keep** `blind/AGENTS.md` and `blind/solution/` |
+| `stage` | rebuild + strip, publish one opaque `blind/case-NN/` per binary (`demo`, `demo.asm`, `AGENTS.md` copy) + `blind/_manifest.txt`; **never** copy `src/` |
+| `grade <recon>` | drop `src/` beside the reconstruction as `solution-<name>`, compile+run both, diff |
+| `clean` | remove `build/` and `blind/case-*` + manifest — **keep** the master `blind/AGENTS.md` |
 
 Copy `c-hash/justfile` (single-file C, GCC+Clang) or `rust-hash/justfile`
 (single-file, one compiler) as the starting template and adapt the toolchain.
@@ -139,11 +147,13 @@ external linker; Zig has built-in cross targets; C++ mirrors the C justfile with
 
 ### The blind/AGENTS.md
 
-Copy an existing `blind/AGENTS.md` and keep it **spoiler-free**: state the hard
-rules, list the tools, and walk the same triage → language-detection →
-locate-logic → read → reconstruct → verify → report procedure — but never name
-the algorithm, its constants, or give reference code. The original source is the
-only answer key, and it arrives only via `just grade`.
+Copy an existing `blind/AGENTS.md` verbatim — it is deliberately generic and
+language-neutral. Keep it **spoiler-free** and **single-binary**: it refers only
+to the one binary `demo` (and `demo.asm`) in its folder, never names the
+algorithm/constants/reference code, never hints at variants (other compilers,
+opt levels, architectures, symbol state) or the wider repository, and asks the
+user for the reference solution without saying where it comes from. The original
+source is the only answer key, and it arrives only via `just grade`.
 
 ### Finishing up
 

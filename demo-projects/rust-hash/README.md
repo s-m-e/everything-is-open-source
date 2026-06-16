@@ -79,14 +79,22 @@ just inspect fnv1a-rust-o2   # file type, (demangled) symbols, strings
 The reverse-engineering exercise must run **without** sight of `src/`:
 
 ```sh
-just stage   # rebuild + strip + disassemble, copy into blind/{bin,asm}/
+just stage   # rebuild + strip, then publish one opaque folder per binary
 ```
 
-`blind/` then holds only binaries, their disassembly, and `blind/AGENTS.md`.
-Point an analysis agent at **`blind/` only** — it has no path to `src/`. After
-it commits a reconstruction, drop the source in for grading, e.g.
-`cp src/main.rs blind/solution/`. See [`../AGENTS.md`](../AGENTS.md) for the
-rationale and [`blind/AGENTS.md`](blind/AGENTS.md) for the exercise.
+`blind/` then holds one `case-NN/` folder per binary, each containing just the
+binary renamed `demo`, its disassembly `demo.asm`, and a copy of the
+spoiler-free `blind/AGENTS.md`; the variant map lives only in the operator-only
+`blind/_manifest.txt`. Point an analysis agent at **a single `case-NN/` folder**
+— one opaque binary, no siblings, no path to `src/`. After it commits a
+reconstruction (e.g. `case-05/recon.rs`), grade it:
+
+```sh
+just grade blind/case-05/recon.rs   # drops the reference beside it, compiles+diffs both
+```
+
+See [`../AGENTS.md`](../AGENTS.md) for the rationale and
+[`blind/AGENTS.md`](blind/AGENTS.md) for the exercise.
 
 ## Required tools
 

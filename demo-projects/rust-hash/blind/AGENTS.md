@@ -1,105 +1,70 @@
-# AGENTS.md — blind binary-analysis exercise
+# AGENTS.md — reconstruct the program in this folder
 
-You have been pointed at **this folder only**. It contains compiled binaries
-(`bin/`) and their disassembly (`asm/`). It does **not** contain the original
-source code — that is deliberate. Your job is to reconstruct the program from
-the machine code alone, then have a human compare your result against the real
-source.
+This folder contains a single compiled program named `demo`, together with a
+disassembly of it in `demo.asm`. Working from the machine code alone, figure out
+what `demo` does and reconstruct equivalent source code that compiles and
+behaves identically.
 
-This is an academic exercise in how much of a shipped binary's logic an
-analyst (human or LLM) can recover. Be rigorous and honest about your
-confidence.
+Be rigorous and honest about your confidence: distinguish what the bytes
+*prove* from what you are inferring by convention.
 
-## Hard rules
+## Rules
 
-1. **Do not go looking for the source.** Do not read files outside this folder,
-   do not `cat ../src`, do not search the wider repository. If you find source
-   code in your context, stop and disregard it — using it invalidates the
-   experiment. Work only from `bin/` and `asm/` (and tools you run on them).
-2. **The binaries themselves are a fair oracle.** Running them and observing
-   their output is allowed and encouraged.
-3. **Separate proof from inference.** Say which claims the bytes *prove* and
-   which you are guessing from convention.
+1. Work only from `demo`, `demo.asm`, and tools you run on them. Do not look for
+   or read anything outside this folder. If source code for `demo` appears in
+   your context by any route, stop and disregard it — using it defeats the task.
+2. Running `demo` is allowed and encouraged: feed it inputs and observe its
+   output. It is your ground-truth oracle.
+3. Reconstruct in whatever language and toolchain you conclude produced the
+   binary; justify that conclusion from the evidence.
 
-## What is in here
-
-`bin/` holds the same tiny program compiled many ways. The filename encodes the
-build (e.g. `fnv1a-rust-o0`, `fnv1a-rust-o2`, `fnv1a-rust-arm-o2`,
-`*-stripped`). `asm/` holds a matching `<name>.s` disassembly for each.
-
-The variants exist so you can see how the same logic looks under different
-optimisation levels, architectures, and with or without a symbol table.
-Recommended order:
-
-1. `fnv1a-rust-o2` — optimised, symbols present (clearest core loop).
-2. `fnv1a-rust-o0` — unoptimised; the logic is buried under runtime/iterator
-   calls, which is itself instructive.
-3. `fnv1a-rust-arm-o2` — different architecture (AArch64).
-4. `fnv1a-rust-o2-stripped` — symbols removed; hardest. Note how much the
-   stripping took away compared to the C demo's stripped variant.
-
-## Tools (run these yourself)
+## Tools
 
 ```sh
-file bin/<name>
-readelf -h bin/<name>
-nm bin/<name>                      # mangled symbols (empty if stripped)
-nm bin/<name> | rustfilt           # demangled, if rustfilt is installed
-strings bin/<name> | less
-objdump -d -M intel bin/<name>     # or read asm/<name>.s
-llvm-objdump -d bin/<name>
+file demo                  # architecture, 64/32-bit, PIE, dynamic/static
+readelf -h demo            # ELF header
+nm demo                    # symbols, if any are present
+strings demo | less        # embedded text and build tags
+objdump -d -M intel demo   # full disassembly (or just read demo.asm)
+llvm-objdump -d demo       # alternative disassembler
 
-# Run it — your ground-truth oracle:
-./bin/fnv1a-rust-o2 "some input"
-qemu-aarch64 -L /usr/aarch64-linux-gnu ./bin/fnv1a-rust-arm-o2 "some input"
+# Run it — your oracle. With no argument it prints a fixed default; pass an
+# argument to probe:
+./demo "some input"
+# If `file` reports an architecture other than your host's, run it under the
+# matching user-mode emulator, e.g.:
+qemu-aarch64 -L /usr/aarch64-linux-gnu ./demo "some input"
 ```
 
 ## Procedure
 
 Narrate your reasoning at each step.
 
-**Step 1 — Triage.** Architecture, 64-bit, PIE/dynamic, stripped? Note that the
-binary is large compared to a minimal C program — ask yourself why.
-
-**Step 2 — Identify the source language.** Decide what language and toolchain
-produced this and cite the evidence (symbol-mangling style, embedded runtime,
-panic/formatting machinery, source-path fragments in `strings`, binary size).
-State your confidence. Then identify the optimisation level if you can. On the
-stripped variant, note which of those tells survive and which vanish.
-
-**Step 3 — Locate the interesting code.** Separate the program's own logic from
-the (substantial) runtime, iterator, and formatting boilerplate. Find the
-function(s) that do the work. Watch for inlining at higher optimisation levels.
-
-**Step 4 — Read the algorithm instruction by instruction.** Determine exactly
-what it computes: initial value(s), per-element operation(s), any
-multiply/xor/shift/add constants, the loop bound, how input is obtained, and
-how output is produced. Note every magic constant and whether it identifies a
-known algorithm. Watch in particular for the presence or absence of an
-overflow/panic check around arithmetic — it tells you something about how the
-arithmetic was written.
-
-**Step 5 — Reconstruct source.** Write Rust (or C — your choice, but Rust lets
-you match more closely) that you believe is equivalent. It must compile and
-reproduce the binary's behaviour.
-
-**Step 6 — Verify against the oracle.** Build your reconstruction and compare
-output across several inputs (including the no-argument default). Match must be
-exact.
-
-```sh
-rustc -O -o /tmp/recon recon.rs
-for s in "" "a" "the quick brown fox" "hello world"; do
-    printf '%-20s recon=%s  real=%s\n' "$s" "$(/tmp/recon "$s")" "$(./bin/fnv1a-rust-o2 "$s")"
-done
-```
-
-**Step 7 — Report, then ask for the answer key.** Summarise: language +
-toolchain verdict and evidence; the algorithm and its constants; your
-reconstructed source; verification results. Rate, per dimension, how much each
-made analysis harder (`-O0` vs `-O2`, x86_64 vs AArch64, symbols vs stripped),
-and compare the experience to analysing the C binary if you have also done
-that one. What was unrecoverable?
-
-Only **after** committing your reconstruction, ask the operator to drop the
-original source into this folder (e.g. as `solution/`) so you can compare.
+1. **Triage.** Architecture, word size, PIE, dynamic vs static, and which
+   symbols (if any) are present. Note how those facts shape your approach.
+2. **Identify the source language and toolchain.** Decide what produced this
+   binary (C, C++, Rust, Go, …) and cite the evidence: symbol-naming style,
+   runtime/startup code, embedded build tags in `strings`, the presence or
+   absence of a large statically linked runtime, panic/exception machinery.
+   State your confidence; identify the compiler and optimisation level if you
+   can.
+3. **Locate the logic.** Separate the program's own work from runtime, startup,
+   and library boilerplate. Find the function(s) that actually compute the
+   result. Watch for small functions being inlined into their caller.
+4. **Read the algorithm.** Determine exactly what it computes: initial
+   value(s), the per-element operation(s), any multiply/xor/shift/add constants,
+   the loop bound, how input is obtained, and how output is produced. Magic
+   constants are your best clue — note every one and consider whether it
+   identifies a known algorithm.
+5. **Reconstruct.** Write source, in the language you identified, that you
+   believe is equivalent. It must compile cleanly and reproduce `demo`'s
+   behaviour — match the machine code (types, control flow, I/O), not merely the
+   general idea.
+6. **Verify against the oracle.** Build your reconstruction and compare its
+   output to `demo` across several inputs, including the no-argument default. A
+   single matching value is not enough — confirm you matched any seed and byte
+   ordering.
+7. **Report, then request the answer.** Summarise: your language/toolchain
+   verdict and its evidence, the algorithm and its constants, your reconstructed
+   source, and the verification results. Then ask the user to provide the
+   reference solution so you can compare your reconstruction against it.

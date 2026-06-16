@@ -85,14 +85,21 @@ The reverse-engineering exercise must run **without** sight of `src/`. To make
 that easy:
 
 ```sh
-just stage   # rebuild matrix + strip + disassemble, copy into blind/{bin,asm}/
+just stage   # rebuild matrix + strip, then publish one opaque folder per binary
 ```
 
-`blind/` then holds only binaries, their disassembly, and `blind/AGENTS.md`
-(the spoiler-free instructions). Point an analysis agent at **`blind/` only** —
-it has no path to `src/`. After it commits a reconstruction, drop the original
-source in for grading, e.g. `cp src/fnv1a.c blind/solution/`. See
-[`../AGENTS.md`](../AGENTS.md) for the rationale and
+`blind/` then holds one `case-NN/` folder per binary, each containing just the
+binary renamed `demo`, its disassembly `demo.asm`, and a copy of the
+spoiler-free `blind/AGENTS.md`. The variant each folder came from is recorded
+only in the operator-only `blind/_manifest.txt`. Point an analysis agent at **a
+single `case-NN/` folder** — it sees one opaque binary, no siblings, and no path
+to `src/`. After it commits a reconstruction (e.g. `case-09/recon.c`), grade it:
+
+```sh
+just grade blind/case-09/recon.c   # drops the reference beside it, compiles+diffs both
+```
+
+See [`../AGENTS.md`](../AGENTS.md) for the rationale and
 [`blind/AGENTS.md`](blind/AGENTS.md) for the exercise.
 
 ## Required tools

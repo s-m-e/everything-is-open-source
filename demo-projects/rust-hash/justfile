@@ -141,42 +141,52 @@ inspect bin:
 # Stage artefacts into blind/ for the analysis agent (NO source is copied)
 # ---------------------------------------------------------------------------
 
-# Rebuild everything, strip the shipping variants, disassemble every binary,
-# and copy binaries + disassembly into blind/. The agent in blind/ sees only
-# these artefacts — never src/ — so it works genuinely blind.
-stage: clean all strip-all
+# Rebuild everything, strip the shipping variants, and publish ONE opaque folder
+# per binary into blind/. Each folder gets the binary as `demo`, its
+# disassembly as `demo.asm`, and a copy of the single-binary AGENTS.md. The
+# variant name appears only in the operator manifest, never inside a folder, so
+# an agent given one folder cannot tell it apart from any other or know that
+# siblings exist. Files an operator/agent added (recon, solution) are kept.
+stage: all strip-all
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p {{blind_dir}}/bin {{blind_dir}}/asm
-    rm -f {{blind_dir}}/bin/* {{blind_dir}}/asm/*
+    manifest={{blind_dir}}/_manifest.txt
+    : > "$manifest"
+    n=0
     for b in {{build_dir}}/fnv1a-*; do
         name=$(basename "$b")
         case "$name" in *.s) continue;; esac
-        cp "$b" {{blind_dir}}/bin/"$name"
+        n=$((n+1))
+        dir={{blind_dir}}/$(printf 'case-%02d' "$n")
+        mkdir -p "$dir"
+        cp "$b" "$dir/demo"
         if [[ "$name" == *arm* ]]; then
-            aarch64-linux-gnu-objdump -d "$b" > {{blind_dir}}/asm/"$name".s
+            aarch64-linux-gnu-objdump -d "$dir/demo" > "$dir/demo.asm"
         else
-            objdump -d -M intel "$b" > {{blind_dir}}/asm/"$name".s
+            objdump -d -M intel "$dir/demo" > "$dir/demo.asm"
         fi
+        cp {{blind_dir}}/AGENTS.md "$dir/AGENTS.md"
+        printf '%-10s %s\n' "$(basename "$dir")" "$name" >> "$manifest"
     done
-    echo "staged $(ls {{blind_dir}}/bin | wc -l) binaries + disassembly into {{blind_dir}}/"
-    echo "point an analysis agent at $(pwd)/{{blind_dir}} (see {{blind_dir}}/AGENTS.md)"
+    echo "staged $n binaries into {{blind_dir}}/ — one opaque folder each (demo, demo.asm, AGENTS.md)"
+    echo "operator map: $manifest"
+    echo "give an analysis agent ONE folder only, e.g. {{blind_dir}}/case-01"
 
 # ---------------------------------------------------------------------------
 # Grade a reconstruction against the original (the answer key)
 # ---------------------------------------------------------------------------
 
-# Reveal the source into blind/solution/ and grade an analyst's reconstruction
-# against it: a behavioural comparison (compile both, run on several inputs)
-# plus a textual diff. Run this only AFTER the analyst has committed its work.
-# recon = path to the reconstructed source (.rs built with rustc, .c with gcc).
-#   just grade blind/recon.rs
+# Drop the reference source next to a reconstruction and grade it: a
+# behavioural comparison (compile both, run on several inputs) plus a textual
+# diff. Run this only AFTER the analyst has committed its work. recon = path to
+# the reconstructed source (.rs built with rustc, .c with gcc); the reference is
+# placed alongside it as solution-<name>.
+#   just grade blind/case-01/recon.rs
 grade recon:
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p {{blind_dir}}/solution
-    cp {{src}} {{blind_dir}}/solution/
-    orig={{blind_dir}}/solution/$(basename {{src}})
+    orig=$(dirname "{{recon}}")/solution-$(basename {{src}})
+    cp {{src}} "$orig"
     compile() { case "$1" in
         *.rs) rustc -O -o "$2" "$1";;
         *.c)  gcc -O2 -o "$2" "$1";;
@@ -196,9 +206,10 @@ grade recon:
     echo "== textual diff (original <-> reconstruction) =="
     if diff -u "$orig" "{{recon}}"; then echo "(byte-for-byte identical)"; fi || true
 
-# Remove build artefacts. Keeps blind/AGENTS.md AND blind/solution/ (the answer
-# key, managed by `grade`); only clears the regenerable staged bin/asm.
-# For a full wipe including the revealed source: rm -rf blind/solution
+# Remove build artefacts and the staged blind/ case folders (binaries,
+# disassembly, AGENTS.md copies, and any recon/solution dropped in them). Keeps
+# the master blind/AGENTS.md template. `stage` itself does NOT call this, so
+# re-staging preserves anything you added to a case folder.
 clean:
     rm -rf {{build_dir}}
-    rm -rf {{blind_dir}}/bin {{blind_dir}}/asm
+    rm -rf {{blind_dir}}/case-* {{blind_dir}}/_manifest.txt
