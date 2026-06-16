@@ -1,0 +1,8 @@
+default:
+    @just --list
+
+clean:
+    rm everything-is-open-source.pdf
+
+compile:
+    typst compile everything-is-open-source.typ
