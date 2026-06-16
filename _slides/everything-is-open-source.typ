@@ -166,6 +166,7 @@
 
   - Baselines
     - C / gcc / LLVM / `-o0` / `-o2`
+    - x86_64 vs AARCH64
     - Anthropic / Microsoft / Google / open models
   - Rust
   - Go
