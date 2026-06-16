@@ -1,2 +1,10 @@
 /target
 Cargo.lock
+
+# demo-projects build artefacts (binaries + disassembly dumps)
+demo-projects/*/build/
+
+# staged "blind" analysis artefacts, the revealed answer key, and any
+# reconstruction dropped in for grading. Only blind/AGENTS.md is tracked.
+demo-projects/*/blind/*
+!demo-projects/*/blind/AGENTS.md

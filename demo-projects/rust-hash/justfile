@@ -1,0 +1,204 @@
+# FNV-1a hash demo (Rust) — build, run, disassemble, and stage for analysis.
+#
+# Mirror of ../c-hash but in Rust. We invoke `rustc` directly (no Cargo, no
+# crates) so the build is as minimal as the C one and the comparison is fair.
+# See README.md for tools.
+#
+# The reverse-engineering exercise lives in blind/AGENTS.md and operates ONLY
+# on the artefacts staged into blind/ — never on src/. Run `just stage` to
+# (re)populate blind/, then point an analysis agent at the blind/ folder.
+
+build_dir   := "build"
+blind_dir   := "blind"
+src         := "src/main.rs"
+arm_target  := "aarch64-unknown-linux-gnu"
+arm_sysroot := "/usr/aarch64-linux-gnu"
+
+# List available recipes.
+default:
+    @just --list
+
+# ---------------------------------------------------------------------------
+# Native x86_64 builds
+# ---------------------------------------------------------------------------
+
+# Build ONE native variant. opt in {0, 2} (rustc -C opt-level).
+#   just build 2
+build opt:
+    mkdir -p {{build_dir}}
+    rustc -C opt-level={{opt}} -o {{build_dir}}/fnv1a-rust-o{{opt}} {{src}}
+    @echo "built {{build_dir}}/fnv1a-rust-o{{opt}}"
+
+# Build both native opt levels.
+build-all:
+    just build 0
+    just build 2
+
+# ---------------------------------------------------------------------------
+# Cross builds for ARMv8 / AArch64 (run later under qemu)
+# ---------------------------------------------------------------------------
+
+# Build ONE aarch64 variant. Uses the GNU cross compiler as the linker.
+# Requires `rustup target add aarch64-unknown-linux-gnu` (see README.md).
+build-arm opt:
+    mkdir -p {{build_dir}}
+    rustc --target {{arm_target}} -C linker=aarch64-linux-gnu-gcc \
+        -C opt-level={{opt}} -o {{build_dir}}/fnv1a-rust-arm-o{{opt}} {{src}}
+    @echo "built {{build_dir}}/fnv1a-rust-arm-o{{opt}}"
+
+# Build both aarch64 opt levels.
+build-arm-all:
+    just build-arm 0
+    just build-arm 2
+
+# Build everything native + arm.
+all: build-all build-arm-all
+
+# ---------------------------------------------------------------------------
+# Third dimension: strip symbols (mimics a real "shipping" binary).
+# This is especially impactful for Rust: it removes the loud mangled symbols
+# (_ZN…E) that otherwise scream "Rust".
+# ---------------------------------------------------------------------------
+
+# Strip a native binary -> <bin>-stripped.
+strip bin:
+    cp {{build_dir}}/{{bin}} {{build_dir}}/{{bin}}-stripped
+    strip -s {{build_dir}}/{{bin}}-stripped
+    @echo "stripped -> {{build_dir}}/{{bin}}-stripped"
+
+# Strip an aarch64 binary (needs the cross strip).
+strip-arm bin:
+    cp {{build_dir}}/{{bin}} {{build_dir}}/{{bin}}-stripped
+    aarch64-linux-gnu-strip -s {{build_dir}}/{{bin}}-stripped
+    @echo "stripped -> {{build_dir}}/{{bin}}-stripped"
+
+# Strip the realistic "shipping" variants (-O2, both arches).
+strip-all:
+    just strip fnv1a-rust-o2
+    just strip-arm fnv1a-rust-arm-o2
+
+# ---------------------------------------------------------------------------
+# Run
+# ---------------------------------------------------------------------------
+
+# Run a native binary. Extra args are passed to the program.
+#   just run fnv1a-rust-o2 "hello world"
+run bin *args:
+    ./{{build_dir}}/{{bin}} {{args}}
+
+# Run an aarch64 binary under qemu user mode.
+#   just run-arm fnv1a-rust-arm-o2 "hello world"
+run-arm bin *args:
+    qemu-aarch64 -L {{arm_sysroot}} ./{{build_dir}}/{{bin}} {{args}}
+
+# Known-answer check: every native variant prints the same hash for the
+# default input, and the same value as the C demo. Run `just build-all` first.
+check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for b in {{build_dir}}/fnv1a-rust-o*; do
+        case "$b" in *.s) continue;; esac
+        [ -x "$b" ] && printf "%-26s %s\n" "$(basename "$b")" "$("$b")"
+    done
+
+# ---------------------------------------------------------------------------
+# Disassembly
+# ---------------------------------------------------------------------------
+
+# Disassemble a native x86_64 binary to both AT&T and Intel syntax .s files.
+#   just disasm fnv1a-rust-o2
+disasm bin:
+    objdump -d -M att   {{build_dir}}/{{bin}} > {{build_dir}}/{{bin}}.att.s
+    objdump -d -M intel {{build_dir}}/{{bin}} > {{build_dir}}/{{bin}}.intel.s
+    @echo "wrote {{build_dir}}/{{bin}}.att.s and {{build_dir}}/{{bin}}.intel.s"
+
+# Disassemble only the hash function (rust mangles the name; this greps for it).
+# At -O2 the function is usually INLINED into main and has no symbol of its own,
+# so this falls back to disassembling main.
+disasm-fn bin:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    sym=$(nm {{build_dir}}/{{bin}} 2>/dev/null | grep -i fnv1a_hash | head -1 | awk '{print $3}' || true)
+    if [ -n "$sym" ]; then
+        objdump -d -M intel --disassemble="$sym" {{build_dir}}/{{bin}}
+    else
+        echo "No standalone fnv1a_hash symbol — likely inlined or stripped; disassembling main:"
+        objdump -d -M intel --disassemble=main {{build_dir}}/{{bin}} 2>/dev/null || true
+    fi
+
+# Disassemble an aarch64 binary.
+disasm-arm bin:
+    aarch64-linux-gnu-objdump -d {{build_dir}}/{{bin}} > {{build_dir}}/{{bin}}.arm.s
+    @echo "wrote {{build_dir}}/{{bin}}.arm.s"
+
+# Quick triage: file type, demangled symbols, tell-tale strings.
+inspect bin:
+    @echo "== file =="     && file {{build_dir}}/{{bin}}
+    @echo "== symbols ==" && nm {{build_dir}}/{{bin}} 2>/dev/null | rustfilt 2>/dev/null | grep -i fnv || echo "(no fnv symbol — stripped or inlined)"
+    @echo "== strings ==" && strings {{build_dir}}/{{bin}} | grep -iE "quick|rustc|/rust|panicked" | head || true
+
+# ---------------------------------------------------------------------------
+# Stage artefacts into blind/ for the analysis agent (NO source is copied)
+# ---------------------------------------------------------------------------
+
+# Rebuild everything, strip the shipping variants, disassemble every binary,
+# and copy binaries + disassembly into blind/. The agent in blind/ sees only
+# these artefacts — never src/ — so it works genuinely blind.
+stage: clean all strip-all
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p {{blind_dir}}/bin {{blind_dir}}/asm
+    rm -f {{blind_dir}}/bin/* {{blind_dir}}/asm/*
+    for b in {{build_dir}}/fnv1a-*; do
+        name=$(basename "$b")
+        case "$name" in *.s) continue;; esac
+        cp "$b" {{blind_dir}}/bin/"$name"
+        if [[ "$name" == *arm* ]]; then
+            aarch64-linux-gnu-objdump -d "$b" > {{blind_dir}}/asm/"$name".s
+        else
+            objdump -d -M intel "$b" > {{blind_dir}}/asm/"$name".s
+        fi
+    done
+    echo "staged $(ls {{blind_dir}}/bin | wc -l) binaries + disassembly into {{blind_dir}}/"
+    echo "point an analysis agent at $(pwd)/{{blind_dir}} (see {{blind_dir}}/AGENTS.md)"
+
+# ---------------------------------------------------------------------------
+# Grade a reconstruction against the original (the answer key)
+# ---------------------------------------------------------------------------
+
+# Reveal the source into blind/solution/ and grade an analyst's reconstruction
+# against it: a behavioural comparison (compile both, run on several inputs)
+# plus a textual diff. Run this only AFTER the analyst has committed its work.
+# recon = path to the reconstructed source (.rs built with rustc, .c with gcc).
+#   just grade blind/recon.rs
+grade recon:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p {{blind_dir}}/solution
+    cp {{src}} {{blind_dir}}/solution/
+    orig={{blind_dir}}/solution/$(basename {{src}})
+    compile() { case "$1" in
+        *.rs) rustc -O -o "$2" "$1";;
+        *.c)  gcc -O2 -o "$2" "$1";;
+        *) echo "unknown source type: $1" >&2; return 1;; esac; }
+    echo "== behavioural comparison =="
+    compile "$orig"     /tmp/grade-orig
+    compile "{{recon}}" /tmp/grade-recon
+    pass=1
+    for s in "" "a" "the quick brown fox" "hello world" "1234567890"; do
+        o=$(/tmp/grade-orig "$s"); r=$(/tmp/grade-recon "$s")
+        label=${s:-"(no-arg default)"}
+        if [ "$o" = "$r" ]; then printf "  OK    %s\n" "$label"
+        else printf "  FAIL  %s  orig=%s recon=%s\n" "$label" "$o" "$r"; pass=0; fi
+    done
+    [ $pass -eq 1 ] && echo "BEHAVIOUR: identical" || echo "BEHAVIOUR: MISMATCH"
+    echo
+    echo "== textual diff (original <-> reconstruction) =="
+    if diff -u "$orig" "{{recon}}"; then echo "(byte-for-byte identical)"; fi || true
+
+# Remove build artefacts. Keeps blind/AGENTS.md AND blind/solution/ (the answer
+# key, managed by `grade`); only clears the regenerable staged bin/asm.
+# For a full wipe including the revealed source: rm -rf blind/solution
+clean:
+    rm -rf {{build_dir}}
+    rm -rf {{blind_dir}}/bin {{blind_dir}}/asm
