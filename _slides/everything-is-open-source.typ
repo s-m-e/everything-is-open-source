@@ -46,13 +46,28 @@
   #text(0.8em)[Rust User Group Leipzig, #release]
 
   Sebastian M. Ernst \<ernst\@pleiszenburg.de\>
+
+]
+
+#slide[
+  = What a time to be alive ...
+  #show: later
+
+  - "Anthropic Halts Access to Fable 5 and Mythos 5" (Serve The Home, 2026-06-14)
+  - "The U.S. government has banned foreigners from accessing Antropic's latest artificial intelligence" (Maeil Business Korea, 2026-06-13)
+  - "Amazon CEO reportedly raised Anthropic model concerns before government crackdown" (Tech Crunch, 2026-06-13)
+  - "Amazon and Google have billions riding on Anthropic. The IPO will finally reveal how much." (Fortune, 2026-06-04)
+  - "Mythos of Antropic, a real threat to humanity" (la Quotidienne, 2026-04-27)
+
 ]
 
 #slide[
   = What is this all about?
   #show: later
 
-  LLMs broke the internet ... and compiled binaries, apparently.
+  LLMs are breaking the internet, the economy, humanity ...
+
+  ... and *compiled binaries*, apparently.
 
   - Disassembling and decompiling code is not complicated anymore?
   - Obfuscating functionality within propriety software - still a viable strategy?
