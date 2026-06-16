@@ -133,17 +133,43 @@
   = Rumors & hypotheses
   #show: later
 
-  1. Plain C via `gcc` is a fairly trivial target? Compare to O#lower[n] / LLVM?
+  1. Plain C via `gcc` is a fairly trivial target? Compare to `-O2` / LLVM?
   2. Rust "appears" to be good, for now?
   3. Anything LLVM-based is ok-ish? C via LLVM?
 
   #show: later
 
-  = Ideas for further experiments
+]
+
+#slide[
+  = Experiments: functionality
   #show: later
 
-  - Python compiled via Cython
-  - Anything Go
+  Things we can quickly sketch up with some help:
+
+  - Very simple hashing algorithm
+
+  A bit more complicated:
+
+  - Some simple `print`-like function call guarded by:
+
+      1. a check of a (detached) x509 signature of the binary it's contained in
+      2. some kind of minimal HTTP-based auth logic with baked secret / key
+
+  What comes to *YOUR* mind?
+
+]
+
+#slide[
+  = Experiments: permutations and reverse-engineering
+  #show: later
+
+  - Baselines
+    - C / gcc / LLVM / `-o0` / `-o2`
+    - Anthropic / Microsoft / Google / open models
+  - Rust
+  - Go
+  - Python compiled via Cython (surprisingly common)
   - Custom state machines / VMs / run-times?
 
   What comes to *YOUR* mind?
