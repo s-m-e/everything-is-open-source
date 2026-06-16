@@ -1,7 +1,7 @@
 #import "@preview/polylux:0.4.0": *
 #import "@preview/rustycure:0.2.0": qr-code
 
-#let title = "Everything is Open Source"
+#let title = "Everything is Open Source - Interactive Workshop"
 #let release = "2026-06-16"
 #let url = "github.com/s-m-e/everything-is-open-source"
 #let color_bg = rgb("#333132")
@@ -43,7 +43,7 @@
   )
 
   #text(1.5em)[#title] \
-  #text(0.8em)[Rust User Group Leipzig, #release]
+  #text(0.8em)[Rust User Group Leipzig, in collaboration with the Go User group, #release]
 
   Sebastian M. Ernst \<ernst\@pleiszenburg.de\>
 

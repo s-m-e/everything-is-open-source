@@ -1,4 +1,4 @@
-# Everything is Open Source
+# Everything is Open Source - Interactive Workshop
 
 Slides and code.
 
